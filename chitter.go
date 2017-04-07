@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type msg struct {
@@ -112,35 +113,48 @@ func acceptConnections(server net.Listener, newConnChan chan net.Conn) {
 }
 
 func handleClient(id int, client net.Conn, recvChan chan []byte, broadcastChan chan msg) {
+	clientChan := make(chan []byte)
 	quit := make(chan bool)
-	go readClient(id, client, broadcastChan, quit)
+	go readClient(client, clientChan, quit)
 	defer client.Close()
 	for {
 		select {
+		case sendMsg := <-clientChan:
+			if cmdIndex := strings.Index(string(sendMsg), ":"); cmdIndex == -1 {
+				broadcastChan <- msg{id, sendMsg}
+			} else {
+				switch string(sendMsg)[:cmdIndex] {
+				case "whoami":
+					whoamiMsg := []byte("chitter: " + strconv.Itoa(id) + "\n")
+					client.Write(whoamiMsg)
+				case "all":
+					broadcastChan <- msg{id, []byte(string(sendMsg)[cmdIndex+1:])}
+				default:
+					fmt.Printf("Unrecognized command from client %d\n", id)
+				}
+			}
 		case rcvdMsg := <-recvChan:
 			client.Write(rcvdMsg)
 		case <-quit:
+			fmt.Printf("Closing client %d\n", id)
 			return
 		}
 	}
 }
 
-func readClient(id int, client net.Conn, broadcastChan chan msg, quitChan chan bool) {
+func readClient(client net.Conn, clientChan chan []byte, quitChan chan bool) {
 	reader := bufio.NewReader(client)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
-				fmt.Printf("Client %d ended the connection\n", id)
+				fmt.Printf("Client ended the connection\n")
 			} else {
 				fmt.Println("Server error reading stream: " + err.Error())
 			}
 			quitChan <- true
 			return
 		}
-		//if not a private message
-		broadcastChan <- msg{id, line}
-		//else
-		//privateSendChan <- line
+		clientChan <- line
 	}
 }
