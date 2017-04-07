@@ -3,46 +3,68 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 )
+
+type msg struct {
+	id   int
+	line []byte
+}
 
 // TODO: Pass a flag in to denote a client instead of a server
 // Currently, we try to connect and start a server if we can't
 func main() {
 	if len(os.Args) == 2 {
 		port := os.Args[1]
-		client, err := net.Dial("tcp", ":"+port)
+		conn, err := net.Dial("tcp", ":"+port)
 		if err != nil {
 			fmt.Println("Failed to connect to server: " + err.Error())
 			fmt.Println("Starting a new one...")
 			chatServer(port)
 		} else {
-			fmt.Printf("Connection established: %v <-> %v\n", client.LocalAddr(), client.RemoteAddr())
-			chatClient(client)
+			fmt.Printf("Connection established: %v <-> %v\n", conn.LocalAddr(), conn.RemoteAddr())
+			chatClient(conn)
 		}
 	} else {
 		fmt.Println("usage: go run chitter.go <port_number>")
 	}
 }
 
-func chatClient(client net.Conn) {
-	input := bufio.NewReader(os.Stdin)
-	response := bufio.NewReader(client)
-	defer client.Close()
+func chatClient(server net.Conn) {
+	stdinChan := make(chan []byte)
+	serverChan := make(chan []byte)
+	quit := make(chan bool)
+	go clientSelect(bufio.NewReader(os.Stdin), stdinChan, quit)
+	go clientSelect(bufio.NewReader(server), serverChan, quit)
+	defer server.Close()
 	for {
-		line, err := input.ReadBytes('\n')
-		if err != nil {
-			fmt.Println("Error while reading from stdin: ", err.Error())
-			continue
+		select {
+		case line := <-stdinChan:
+			server.Write(line)
+		case serverResp := <-serverChan:
+			fmt.Print(string(serverResp))
+		case <-quit:
+			fmt.Println("Connection was closed...")
+			return
 		}
-		client.Write(line)
-		serverResp, err := response.ReadBytes('\n')
+	}
+}
+
+func clientSelect(reader *bufio.Reader, ch chan []byte, quitChan chan bool) {
+	for {
+		line, err := reader.ReadBytes('\n')
 		if err != nil {
-			fmt.Println("Client error while reading from stream: ", err.Error())
-			break
+			if err == io.EOF {
+				fmt.Println("EOF")
+				quitChan <- true
+			} else {
+				fmt.Println("Error while reading: ", err.Error())
+				continue
+			}
 		}
-		fmt.Print(string(serverResp))
+		ch <- line
 	}
 }
 
@@ -53,6 +75,29 @@ func chatServer(port string) {
 	}
 
 	fmt.Println("Listening on port " + port)
+	id := 0
+	idChannelMap := make(map[int]chan []byte)
+	newConnChan := make(chan net.Conn)
+	broadcastChan := make(chan msg)
+	go acceptConnections(server, newConnChan)
+	for {
+		select {
+		case client := <-newConnChan:
+			idChannelMap[id] = make(chan []byte)
+			go handleClient(id, client, idChannelMap[id], broadcastChan)
+			id++
+		case broadcast := <-broadcastChan:
+			for channelID, channel := range idChannelMap {
+				if channelID != broadcast.id {
+					//TODO: Preface message with ID
+					channel <- broadcast.line
+				}
+			}
+		}
+	}
+}
+
+func acceptConnections(server net.Listener, newConnChan chan net.Conn) {
 	for {
 		client, err := server.Accept()
 		if err != nil {
@@ -60,19 +105,36 @@ func chatServer(port string) {
 			continue
 		}
 		fmt.Printf("Connection established: %v <-> %v\n", client.LocalAddr(), client.RemoteAddr())
-		go handleClient(client)
+		newConnChan <- client
 	}
 }
 
-func handleClient(client net.Conn) {
-	reader := bufio.NewReader(client)
+func handleClient(id int, client net.Conn, recvChan chan []byte, broadcastChan chan msg) {
+	quit := make(chan bool)
+	go readClient(id, client, broadcastChan, quit)
 	defer client.Close()
+	for {
+		select {
+		case rcvdMsg := <-recvChan:
+			client.Write(rcvdMsg)
+		case <-quit:
+			return
+		}
+	}
+}
+
+func readClient(id int, client net.Conn, broadcastChan chan msg, quitChan chan bool) {
+	reader := bufio.NewReader(client)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			fmt.Println("Server error reading stream: " + err.Error())
+			quitChan <- true
 			break
 		}
-		client.Write(line)
+		//if not a private message
+		broadcastChan <- msg{id, line}
+		//else
+		//privateSendChan <- line
 	}
 }
