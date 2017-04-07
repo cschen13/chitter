@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -15,22 +16,25 @@ type msg struct {
 	line []byte
 }
 
-// TODO: Pass a flag in to denote a client instead of a server
-// Currently, we try to connect and start a server if we can't
 func main() {
-	if len(os.Args) == 2 {
-		port := os.Args[1]
-		conn, err := net.Dial("tcp", ":"+port)
-		if err != nil {
-			fmt.Println("Failed to connect to server: " + err.Error())
-			fmt.Println("Starting a new one...")
-			chatServer(port)
-		} else {
+	isClient := flag.Bool("c", false, "Connect as a client")
+	flag.Parse()
+	if len(flag.Args()) == 1 {
+		port := flag.Args()[0]
+		if *isClient {
+			conn, err := net.Dial("tcp", ":"+port)
+			if err != nil {
+				println("Failed to connect to server: " + err.Error())
+				return
+			}
 			fmt.Printf("Connection established: %v <-> %v\n", conn.LocalAddr(), conn.RemoteAddr())
 			chatClient(conn)
+		} else {
+			fmt.Println("Starting a new server...")
+			chatServer(port)
 		}
 	} else {
-		fmt.Println("usage: go run chitter.go <port_number>")
+		fmt.Println("usage: go run chitter.go [-c] <port_number>")
 	}
 }
 
