@@ -38,8 +38,8 @@ func chatClient(server net.Conn) {
 	stdinChan := make(chan []byte)
 	serverChan := make(chan []byte)
 	quit := make(chan bool)
-	go clientSelect(bufio.NewReader(os.Stdin), stdinChan, quit)
-	go clientSelect(bufio.NewReader(server), serverChan, quit)
+	go readSelect(bufio.NewReader(os.Stdin), stdinChan, quit)
+	go readSelect(bufio.NewReader(server), serverChan, quit)
 	defer server.Close()
 	for {
 		select {
@@ -51,22 +51,6 @@ func chatClient(server net.Conn) {
 			fmt.Println("Connection was closed...")
 			return
 		}
-	}
-}
-
-func clientSelect(reader *bufio.Reader, ch chan []byte, quitChan chan bool) {
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				quitChan <- true
-				return
-			} else {
-				fmt.Println("Error while reading: ", err.Error())
-				continue
-			}
-		}
-		ch <- line
 	}
 }
 
@@ -115,7 +99,7 @@ func acceptConnections(server net.Listener, newConnChan chan net.Conn) {
 func handleClient(id int, client net.Conn, recvChan chan []byte, broadcastChan chan msg) {
 	clientChan := make(chan []byte)
 	quit := make(chan bool)
-	go readClient(client, clientChan, quit)
+	go readSelect(bufio.NewReader(client), clientChan, quit)
 	defer client.Close()
 	for {
 		select {
@@ -136,25 +120,22 @@ func handleClient(id int, client net.Conn, recvChan chan []byte, broadcastChan c
 		case rcvdMsg := <-recvChan:
 			client.Write(rcvdMsg)
 		case <-quit:
-			fmt.Printf("Closing client %d\n", id)
+			fmt.Printf("Client %d closed\n", id)
 			return
 		}
 	}
 }
 
-func readClient(client net.Conn, clientChan chan []byte, quitChan chan bool) {
-	reader := bufio.NewReader(client)
+func readSelect(reader *bufio.Reader, ch chan []byte, quitChan chan bool) {
 	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				fmt.Printf("Client ended the connection\n")
-			} else {
-				fmt.Println("Server error reading stream: " + err.Error())
-			}
+		switch line, err := reader.ReadBytes('\n'); err {
+		case nil:
+			ch <- line
+		case io.EOF:
 			quitChan <- true
 			return
+		default:
+			fmt.Println("Error while reading: ", err.Error())
 		}
-		clientChan <- line
 	}
 }
