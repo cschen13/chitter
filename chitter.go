@@ -17,8 +17,8 @@ type Msg struct {
 }
 
 type PrivateMsg struct {
-	msg        Msg
-	recpientId int
+	msg         Msg
+	recipientId int
 }
 
 func main() {
@@ -92,16 +92,16 @@ func chatServer(port string) {
 			}
 		case pm := <-privateChan:
 			//Removing a client who has quit the connection
-			//Client handler should send PM with recipient ID of -1
-			if pm.recpientId == -1 {
+			//Client handler should send PM with nil line
+			if pm.msg.line == nil {
 				close(idChannelMap[pm.msg.id])
 				delete(idChannelMap, pm.msg.id)
 			} else {
-				if channel, ok := idChannelMap[pm.recpientId]; ok {
+				if channel, ok := idChannelMap[pm.recipientId]; ok {
 					channel <- append([]byte(strconv.Itoa(pm.msg.id)+": "), pm.msg.line...)
-					fmt.Printf("Sent private message to %d\n", pm.msg.id)
+					fmt.Printf("Sent private message from %d to %d\n", pm.msg.id, pm.recipientId)
 				} else {
-					idChannelMap[pm.msg.id] <- []byte("chitter: No active user with ID " + strconv.Itoa(pm.recpientId) + "\n")
+					idChannelMap[pm.msg.id] <- []byte("chitter: No active user with ID " + strconv.Itoa(pm.recipientId) + "\n")
 				}
 			}
 		}
@@ -154,6 +154,7 @@ func handleClient(id int, client net.Conn, recvChan chan []byte, broadcastChan c
 			client.Write(rcvdMsg)
 		case <-quit:
 			fmt.Printf("Client %d closed\n", id)
+			//Request client entry in idChannelMap be removed
 			privateChan <- PrivateMsg{Msg{id, nil}, -1}
 			return
 		}
