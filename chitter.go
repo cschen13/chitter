@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 )
 
 type msg struct {
@@ -57,8 +58,8 @@ func clientSelect(reader *bufio.Reader, ch chan []byte, quitChan chan bool) {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
-				fmt.Println("EOF")
 				quitChan <- true
+				return
 			} else {
 				fmt.Println("Error while reading: ", err.Error())
 				continue
@@ -84,13 +85,14 @@ func chatServer(port string) {
 		select {
 		case client := <-newConnChan:
 			idChannelMap[id] = make(chan []byte)
+			fmt.Printf("New client %d\n", id)
 			go handleClient(id, client, idChannelMap[id], broadcastChan)
 			id++
 		case broadcast := <-broadcastChan:
 			for channelID, channel := range idChannelMap {
 				if channelID != broadcast.id {
-					//TODO: Preface message with ID
-					channel <- broadcast.line
+					broadcastMsg := []byte(strconv.Itoa(broadcast.id) + ": ")
+					channel <- append(broadcastMsg, broadcast.line...)
 				}
 			}
 		}
@@ -128,9 +130,13 @@ func readClient(id int, client net.Conn, broadcastChan chan msg, quitChan chan b
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
-			fmt.Println("Server error reading stream: " + err.Error())
+			if err == io.EOF {
+				fmt.Printf("Client %d ended the connection\n", id)
+			} else {
+				fmt.Println("Server error reading stream: " + err.Error())
+			}
 			quitChan <- true
-			break
+			return
 		}
 		//if not a private message
 		broadcastChan <- msg{id, line}
