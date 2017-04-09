@@ -14,7 +14,7 @@ import (
 type Msg struct {
 	id   int
 	cmd  string
-	line []byte
+	line string
 }
 
 func main() {
@@ -65,13 +65,13 @@ func chatServer(port string) {
 	}
 
 	fmt.Println("Listening on port " + port)
-	id, idChannelMap := 0, make(map[int]chan []byte)
+	id, idChannelMap := 0, make(map[int]chan string)
 	newConnChan, sendChan := make(chan net.Conn), make(chan Msg)
 	go acceptConnections(server, newConnChan)
 	for {
 		select {
 		case client := <-newConnChan:
-			idChannelMap[id] = make(chan []byte)
+			idChannelMap[id] = make(chan string)
 			fmt.Printf("New client %d\n", id)
 			go handleClient(id, client, idChannelMap[id], sendChan)
 			id++
@@ -93,26 +93,27 @@ func acceptConnections(server net.Listener, newConnChan chan net.Conn) {
 	}
 }
 
-func handleMessage(msg Msg, idChannelMap map[int]chan []byte) {
+func handleMessage(msg Msg, idChannelMap map[int]chan string) {
 	senderId := strconv.Itoa(msg.id)
 	switch msg.cmd {
 	case "all":
 		for channelID, channel := range idChannelMap {
 			if channelID != msg.id {
-				channel <- append([]byte(senderId+": "), msg.line...)
+				channel <- senderId + ": " + msg.line
 			}
 		}
 	case "whoami":
-		idChannelMap[msg.id] <- []byte("chitter: " + senderId + "\n")
+		idChannelMap[msg.id] <- "chitter: " + senderId + "\n"
 	case "close":
+		close(idChannelMap[msg.id])
 		delete(idChannelMap, msg.id)
 	default:
 		if recipientId, err := strconv.Atoi(msg.cmd); err == nil && msg.id != recipientId {
 			if channel, ok := idChannelMap[recipientId]; ok {
-				channel <- append([]byte(senderId+": "), msg.line...)
+				channel <- senderId + ": " + msg.line
 				fmt.Printf("Sent private message from %d to %d\n", msg.id, recipientId)
 			} else {
-				idChannelMap[msg.id] <- []byte("chitter: No active user with ID " + msg.cmd + "\n")
+				idChannelMap[msg.id] <- "chitter: No active user with ID " + msg.cmd + "\n"
 			}
 		} else {
 			fmt.Printf("Unrecognized command \"%s\" from client %d\n", msg.cmd, msg.id)
@@ -120,7 +121,7 @@ func handleMessage(msg Msg, idChannelMap map[int]chan []byte) {
 	}
 }
 
-func handleClient(id int, client net.Conn, recvChan chan []byte, sendChan chan Msg) {
+func handleClient(id int, client net.Conn, recvChan chan string, sendChan chan Msg) {
 	clientChan, quit := make(chan []byte), make(chan bool)
 	go readSelect(bufio.NewReader(client), clientChan, quit)
 	defer client.Close()
@@ -128,18 +129,18 @@ func handleClient(id int, client net.Conn, recvChan chan []byte, sendChan chan M
 		select {
 		case sendMsg := <-clientChan:
 			if cmdIndex := strings.Index(string(sendMsg), ":"); cmdIndex == -1 {
-				sendChan <- Msg{id, "all", []byte(strings.TrimLeft(string(sendMsg), " \t"))}
+				sendChan <- Msg{id, "all", strings.TrimLeft(string(sendMsg), " \t")}
 			} else {
 				cmd := strings.TrimSpace(string(sendMsg)[:cmdIndex])
-				line := []byte(strings.TrimLeft(string(sendMsg)[cmdIndex+1:], " \t"))
+				line := strings.TrimLeft(string(sendMsg)[cmdIndex+1:], " \t")
 				sendChan <- Msg{id, cmd, line}
 			}
-		case rcvdMsg := <-recvChan:
-			client.Write(rcvdMsg)
+		case rcvdStr := <-recvChan:
+			fmt.Fprintf(client, rcvdStr)
 		case <-quit:
 			fmt.Printf("Client %d closed\n", id)
 			//Request client entry in idChannelMap be removed
-			sendChan <- Msg{id, "close", nil}
+			sendChan <- Msg{id, "close", ""}
 			return
 		}
 	}
