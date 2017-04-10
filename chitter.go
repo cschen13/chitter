@@ -1,3 +1,5 @@
+// Chris Chen
+// Project 0
 package main
 
 import (
@@ -97,10 +99,8 @@ func handleMessage(msg Msg, idChannelMap map[int]chan string) {
 	senderId := strconv.Itoa(msg.id)
 	switch msg.cmd {
 	case "all":
-		for channelID, channel := range idChannelMap {
-			if channelID != msg.id {
-				channel <- senderId + ": " + msg.line
-			}
+		for _, channel := range idChannelMap {
+			channel <- senderId + ": " + msg.line
 		}
 	case "whoami":
 		idChannelMap[msg.id] <- "chitter: " + senderId + "\n"
@@ -108,7 +108,7 @@ func handleMessage(msg Msg, idChannelMap map[int]chan string) {
 		close(idChannelMap[msg.id])
 		delete(idChannelMap, msg.id)
 	default:
-		if recipientId, err := strconv.Atoi(msg.cmd); err == nil && msg.id != recipientId {
+		if recipientId, err := strconv.Atoi(msg.cmd); err == nil {
 			if channel, ok := idChannelMap[recipientId]; ok {
 				channel <- senderId + ": " + msg.line
 				fmt.Printf("Sent private message from %d to %d\n", msg.id, recipientId)
