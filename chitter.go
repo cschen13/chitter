@@ -1,4 +1,4 @@
-// Chris Chen
+// Chris Chen, csc404
 // Project 0
 package main
 
