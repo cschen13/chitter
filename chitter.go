@@ -22,25 +22,32 @@ type Msg struct {
 func main() {
 	isClient := flag.Bool("c", false, "Connect as a client")
 	flag.Parse()
-	if len(flag.Args()) == 1 {
-		serverPort := flag.Args()[0]
+	if len(flag.Args()) > 0 && len(flag.Args()) < 3 {
 		if *isClient {
-			if !strings.Contains(serverPort, ":") {
-				serverPort = ":" + serverPort
+			if len(flag.Args()) == 2 {
+				serverIP := flag.Args()[0]
+				serverPort := flag.Args()[1]
+				conn, err := net.Dial("tcp", serverIP+":"+serverPort)
+				if err != nil {
+					println("Failed to connect to server: " + err.Error())
+					return
+				}
+				fmt.Printf("Connection established: %v <-> %v\n", conn.LocalAddr(), conn.RemoteAddr())
+				fmt.Println("Use Ctrl+C to disconnect from the server")
+				chatClient(conn)
+			} else {
+				fmt.Println("usage: go run chitter.go [-c <server_ip>] <port_number>")
 			}
-			conn, err := net.Dial("tcp", serverPort)
-			if err != nil {
-				println("Failed to connect to server: " + err.Error())
-				return
+		} else { //Start a server
+			if len(flag.Args()) == 1 {
+				serverPort := flag.Args()[0]
+				chatServer(serverPort)
+			} else {
+				fmt.Println("usage: go run chitter.go [-c <server_ip>] <port_number>")
 			}
-			fmt.Printf("Connection established: %v <-> %v\n", conn.LocalAddr(), conn.RemoteAddr())
-			fmt.Println("Use Ctrl+C to disconnect from the server")
-			chatClient(conn)
-		} else {
-			chatServer(serverPort)
 		}
 	} else {
-		fmt.Println("usage: go run chitter.go [-c] <port_number>")
+		fmt.Println("usage: go run chitter.go [-c <server_ip>] <port_number>")
 	}
 }
 
