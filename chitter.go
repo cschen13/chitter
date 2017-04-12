@@ -23,17 +23,21 @@ func main() {
 	isClient := flag.Bool("c", false, "Connect as a client")
 	flag.Parse()
 	if len(flag.Args()) == 1 {
-		port := flag.Args()[0]
+		serverPort := flag.Args()[0]
 		if *isClient {
-			conn, err := net.Dial("tcp", ":"+port)
+			if !strings.Contains(serverPort, ":") {
+				serverPort = ":" + serverPort
+			}
+			conn, err := net.Dial("tcp", serverPort)
 			if err != nil {
 				println("Failed to connect to server: " + err.Error())
 				return
 			}
 			fmt.Printf("Connection established: %v <-> %v\n", conn.LocalAddr(), conn.RemoteAddr())
+			fmt.Println("Use Ctrl+C to disconnect from the server")
 			chatClient(conn)
 		} else {
-			chatServer(port)
+			chatServer(serverPort)
 		}
 	} else {
 		fmt.Println("usage: go run chitter.go [-c] <port_number>")
@@ -67,6 +71,7 @@ func chatServer(port string) {
 	}
 
 	fmt.Println("Listening on port " + port)
+	fmt.Println("Use Ctrl+C to close the server")
 	id, idChannelMap := 0, make(map[int]chan string)
 	newConnChan, sendChan := make(chan net.Conn), make(chan Msg)
 	go acceptConnections(server, newConnChan)
@@ -113,7 +118,8 @@ func handleMessage(msg Msg, idChannelMap map[int]chan string) {
 				channel <- senderId + ": " + msg.line
 				fmt.Printf("Sent private message from %d to %d\n", msg.id, recipientId)
 			} else {
-				idChannelMap[msg.id] <- "chitter: No active user with ID " + msg.cmd + "\n"
+				// idChannelMap[msg.id] <- "chitter: No active user with ID " + msg.cmd + "\n"
+				fmt.Printf("chitter: No active user with ID %s\n", msg.cmd)
 			}
 		} else {
 			fmt.Printf("Unrecognized command \"%s\" from client %d\n", msg.cmd, msg.id)
